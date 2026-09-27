@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Hardhat
+cache/
+coverage/
+coverage.json
+typechain-types/
+
+# Frontend build output
+frontend/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+
+# Env
+.env
