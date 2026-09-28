@@ -77,6 +77,15 @@ export function getAccountDetails(
       ? "Deployer"
       : "Bidder",
 
+    /* Role from HARDHAT_ACCOUNTS so the Profile
+       header pill never renders empty */
+
+    role: accMatch
+      ? accMatch.role
+      : isDeployer
+      ? "Deployer"
+      : "Bidder",
+
     short: addr
       ? `${addr.slice(0, 6)}...${addr.slice(-4)}`
       : "Not Connected",

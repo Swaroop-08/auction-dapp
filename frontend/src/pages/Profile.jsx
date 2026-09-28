@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { getAccountLabel, getAccountDetails } from "../utils/accounts";
+import { getAccountLabel, getAccountDetails, HARDHAT_ACCOUNTS } from "../utils/accounts";
 import { 
   ShieldCheck, 
   Wallet, 
@@ -23,7 +23,8 @@ export default function Profile({
   handleWithdraw, 
   deployer,
   auctionsList = [],
-  onOpenCreateModal
+  onOpenCreateModal,
+  onSwitchAccount
 }) {
   const [activeTab, setActiveTab] = useState("BIDS");
   const [isClaiming, setIsClaiming] = useState(false);
@@ -65,6 +66,41 @@ export default function Profile({
       </div>
 
       {/* Role Banner & Identity Card */}
+      {/* Account switcher — consistent with Home (Requirement 4) */}
+      <div className="demo-account-bar">
+        <div className="demo-title-group">
+          <Wallet size={16} color="#06b6d4" />
+          <span className="demo-title">Simulate Local Accounts:</span>
+        </div>
+        <div className="demo-buttons">
+          {HARDHAT_ACCOUNTS.map((acc) => {
+            const isActive =
+              account &&
+              account.toLowerCase() === acc.address.toLowerCase();
+            const isDeployerAcc =
+              acc.address.toLowerCase() === (deployer || "").toLowerCase();
+            return (
+              <button
+                key={acc.address}
+                className={"btn-demo-acc " + (isActive ? "active" : "")}
+                onClick={() => onSwitchAccount && onSwitchAccount(acc.address)}
+                title={`Switch to ${acc.name} (${acc.address})`}
+              >
+                <span>{acc.name}</span>
+                <span
+                  className={
+                    "role-tag-badge " +
+                    (isDeployerAcc ? "role-deployer" : "role-bidder")
+                  }
+                >
+                  {isDeployerAcc ? "Deployer" : "Bidder"}
+                </span>
+          </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className={"card role-highlight-card " + (accountDetails.isDeployer ? "deployer-theme" : "bidder-theme")}>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div className="role-avatar-icon">
@@ -114,7 +150,9 @@ export default function Profile({
           </div>
           <div className="portfolio-stat-info">
             <span className="portfolio-stat-label">Escrow Refund Balance</span>
-            <span className="portfolio-stat-val">{pendingRefund || "0"} ETH</span>
+            <span className="portfolio-stat-val">
+            {parseFloat(pendingRefund || "0").toFixed(4)} ETH
+          </span>
           </div>
         </div>
 
@@ -172,32 +210,66 @@ export default function Profile({
           ) : (
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div className="table-responsive">
-                <table className="audit-table">
+                <table className="audit-table bids-table">
                   <thead>
                     <tr>
                       <th>Asset</th>
                       <th>Bid Amount</th>
+                      <th>Status</th>
                       <th>Timestamp</th>
                       <th>Tx Hash</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {myBids.map((b, idx) => (
-                      <tr key={b.id || idx}>
-                        <td>
-                          <Link to={`/auction/${b.auctionId}`}>
-                            {b.auctionTitle || `Auction #${b.auctionId ?? "?"}`}
-                          </Link>
-                        </td>
-                        <td><span className="bid-badge-highlight">{b.amount} ETH</span></td>
-                        <td>{b.time}</td>
-                        <td>
-                          <span className="tx-hash-badge">
-                            {b.txHash ? b.txHash.slice(0, 12) + "..." : "Confirmed"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {myBids.map((b, idx) => {
+                      // Real on-chain status: is this bid still the
+                      // current highest bid on its auction?
+                      const auction = (auctionsList || []).find(
+                        (a) => a.id === b.auctionId
+                      );
+                      const isTopBid =
+                        auction &&
+                        auction.highestBidder &&
+                        auction.highestBidder.toLowerCase() ===
+                          (b.bidder || "").toLowerCase() &&
+                        parseFloat(auction.highestBid || "0") ===
+                          parseFloat(b.amount || "0");
+                      const statusLabel = isTopBid
+                        ? "TOP BID"
+                        : auction && auction.ended
+                        ? "LOST"
+                        : "OUTBID";
+                      const statusClass = isTopBid
+                        ? "bid-status-top"
+                        : auction && auction.ended
+                        ? "bid-status-lost"
+                        : "bid-status-outbid";
+
+                      return (
+                        <tr key={b.id || idx}>
+                          <td>
+                            <Link
+                              to={`/auction/${b.auctionId}`}
+                              className="bids-table-asset"
+                            >
+                              {b.auctionTitle || `Auction #${b.auctionId ?? "?"}`}
+                            </Link>
+                          </td>
+                          <td><span className="bid-badge-highlight">{b.amount} ETH</span></td>
+                          <td>
+                            <span className={"bid-status-badge " + statusClass}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                          <td className="bids-table-time">{b.time}</td>
+                          <td>
+                            <span className="tx-hash-badge">
+                              {b.txHash ? b.txHash.slice(0, 12) + "..." : "Confirmed"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -219,7 +291,7 @@ export default function Profile({
                 When another user outbids you, 100% of your ETH is transferred to this pull-escrow balance. Click the button to safely transfer it back to your wallet.
               </p>
               <div style={{ marginTop: "1rem", fontSize: "1.85rem", fontWeight: 800, color: isClaimable ? "#34d399" : "var(--text-main)", fontFamily: "var(--font-mono)" }}>
-                {pendingRefund || "0"} ETH
+                {parseFloat(pendingRefund || "0").toFixed(4)} ETH
               </div>
             </div>
 
@@ -282,28 +354,20 @@ export default function Profile({
         </div>
       )}
 
-      {/* Diagnostics */}
-      <div className="card">
-        <h3 style={{ fontSize: "1rem", fontWeight: 800, marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Server size={18} color="#06b6d4" />
-          Localhost Testnet Diagnostics
-        </h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-          <div>
-            <span className="stat-label">CHAIN ID</span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.9rem", color: "var(--text-main)" }}>31337 (Localhost)</span>
-          </div>
-          <div>
-            <span className="stat-label">RPC ENDPOINT</span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.9rem", color: "var(--text-main)" }}>http://127.0.0.1:8545</span>
-          </div>
-          <div>
-            <span className="stat-label">DEPLOYER ADDRESS</span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--cyan)" }}>
-              {deployer ? deployer.slice(0, 8) + "..." + deployer.slice(-6) : "Fetching..."}
-            </span>
-          </div>
-        </div>
+      {/* Diagnostics — compact footer bar */}
+      <div className="diagnostics-footer">
+        <span className="diag-item">
+          <Server size={14} color="#06b6d4" />
+          CHAIN ID <strong>31337 (Localhost)</strong>
+        </span>
+        <span className="diag-item">
+          RPC <strong>http://127.0.0.1:8545</strong>
+        </span>
+        <span className="diag-item">
+          DEPLOYER <strong className="diag-mono">
+            {deployer ? deployer.slice(0, 8) + "..." + deployer.slice(-6) : "Fetching..."}
+          </strong>
+        </span>
       </div>
     </div>
   );
