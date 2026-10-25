@@ -209,10 +209,17 @@ The build targets a local Hardhat node. To run it against Sepolia or another EVM
 
 1. Add the network to `hardhat.config.js` with an RPC URL and a funded deployer key via environment variables.
 2. Deploy with `npx hardhat run scripts/deploy.js --network <name>`.
-3. Point the frontend provider at the public RPC instead of `http://127.0.0.1:8545`.
+3. Build with the target chain and address set, so the frontend never falls back to the local defaults:
+
+   ```bash
+   VITE_RPC_URL=https://sepolia.infura.io/v3/<key> \
+   VITE_CONTRACT_ADDRESS=0xYourDeployedAddress \
+   npm run build
+   ```
+
 4. Replace the local `USER_DIRECTORY` with real wallet-based authentication.
 
-**Do not** deploy the current `auth.js` or `accounts.js` to a public network. They contain the well-known Hardhat development keys and plaintext passwords, which anyone can spend from.
+**Do not** deploy the current `auth.js` or `accounts.js` to a public network. They contain the well-known Hardhat development keys and plaintext passwords, which anyone can spend from. Those values are imported at module scope, so they are bundled into whatever JavaScript you serve — deleting them from the UI is not enough. Until that auth layer is replaced, this project should stay on a local Hardhat node.
 
 ---
 
