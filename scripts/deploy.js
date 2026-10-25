@@ -4,19 +4,19 @@ async function main() {
   const [deployer] = await hre.ethers.getSigners();
   const deployerAddress = await deployer.getAddress();
 
-  console.log("Deploying AuctionX contract with account:", deployerAddress);
+  console.log("Deploying TenderVault contract with account:", deployerAddress);
 
-  const AuctionX = await hre.ethers.getContractFactory("AuctionX");
-  const auction = await AuctionX.deploy();
+  const TenderVault = await hre.ethers.getContractFactory("TenderVault");
+  const tenderVault = await TenderVault.deploy();
 
-  await auction.waitForDeployment();
+  await tenderVault.waitForDeployment();
 
-  const contractAddress = await auction.getAddress();
+  const contractAddress = await tenderVault.getAddress();
 
   console.log("-----------------------------------------------");
-  console.log("AuctionX deployed successfully!");
+  console.log("TenderVault deployed successfully!");
   console.log(`Contract Address: ${contractAddress}`);
-  console.log(`Deployer / Genesis Seller: ${deployerAddress}`);
+  console.log(`Deployer / Nodal Authority: ${deployerAddress}`);
   console.log("-----------------------------------------------");
 }
 

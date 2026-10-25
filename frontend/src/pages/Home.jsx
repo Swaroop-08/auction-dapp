@@ -1,144 +1,87 @@
 import React, { useState, useEffect } from "react";
-import { getAccountLabel, getAccountDetails, HARDHAT_ACCOUNTS } from "../utils/accounts";
-import { 
-  Clock, 
-  ShieldCheck, 
-  RefreshCw, 
-  ArrowUpRight, 
-  History, 
-  Wallet, 
-  Flame,
+import { USER_DIRECTORY } from "../utils/auth";
+import { getTenderImage } from "../utils/constants";
+import {
+  Clock,
+  ShieldCheck,
+  FileText,
+  ArrowUpRight,
+  History,
+  Building,
   Gavel,
-  Landmark
+  IndianRupee,
+  AlertCircle,
 } from "lucide-react";
 
-/*
-  Home = FEATURED LIVE AUCTION SHOWCASE.
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-  The hero card spotlights the DYNAMIC ACTIVE auction
-  (switchable via the selector or Explore "Set Active"),
-  while the bidding console stays the main interactive
-  demo playground. The audit log supports BOTH a GLOBAL
-  feed and a per-auction slice via the scope toggle.
-*/
-
-const ZERO_ADDRESS =
-  "0x0000000000000000000000000000000000000000";
-
-const DEFAULT_FEATURED = {
-  id: 0,
-  title: "Vintage Rolex Submariner (1988)",
-  description:
-    "Authenticated luxury timepiece locked in escrow on the local Ethereum blockchain. All bids are verified and held trustlessly in non-custodial pull escrow.",
-  imageUrl:
-    "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1200&auto=format&fit=crop&q=80",
-  highestBid: null,
-  startingPrice: "0.5",
-  auctionEndTime: null,
+/* Approx conversion used for INR display of ETH-denominated figures */
+const ETH_INR = 285000;
+const toEth = (v, dp = 4) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n.toFixed(dp) : (0).toFixed(dp);
+};
+const toInr = (eth) => {
+  const inr = parseFloat(eth || "0") * ETH_INR;
+  return "₹" + inr.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+};
+const vendorLabel = (addr) => {
+  if (!addr || addr === ZERO_ADDRESS) return "—";
+  const u = USER_DIRECTORY.find(
+    (x) => x.address && x.address.toLowerCase() === addr.toLowerCase()
+  );
+  if (u) return u.vendorId || u.department || u.name;
+  return addr.slice(0, 10) + "…" + addr.slice(-6);
 };
 
-export default function Home({ 
-  account, 
+/*
+  Home = LIVE PROCUREMENT CONSOLE.
+  Shows the ACTIVE tender (selected via the top selector bar or Explore's
+  "Set Active Tender"), its countdown, EMD requirement, current lowest bid
+  and lowest bidder, plus an interactive reverse-auction offer form.
+  The audit trail renders the TenderBidSubmitted events with Vendor ID,
+  Tender Ref, Offer (INR/ETH), EMD, timestamp and tx hash.
+*/
+export default function Home({
+  session,
   balance,
-  highestBid, 
-  highestBidder, 
-  pendingRefund, 
-  bidHistory, 
-  endTime,
-  featuredAuction,
-  auctionsList = [],
-  activeAuctionId = 0,
+  tendersList = [],
+  featuredTender,
+  activeTenderId = 0,
+  onSelectActiveTender,
+  tenderBidHistory = [],
   logContext = "GLOBAL",
   onToggleLogContext,
-  onSelectActiveAuction,
   isLoadingContract,
-  handleBid, 
-  handleWithdraw, 
-  onSwitchAccount,
-  deployer
+  handleSubmitTenderOffer,
+  pendingRefund,
+  handleClaimEmdRefund,
 }) {
-  const [bidInput, setBidInput] = useState("");
+  const [offerInput, setOfferInput] = useState("");
+  const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /* DYNAMIC ACTIVE AUCTION: resolved from the fresh
-     on-chain list + activeAuctionId; falls back to the
-     featured spotlight, then the classic demo asset. */
-  const activeAuction =
-    (auctionsList || []).find((a) => a.id === Number(activeAuctionId)) ||
-    featuredAuction ||
-    DEFAULT_FEATURED;
-
-  const featured = activeAuction;
-  const isFeaturedLive = featuredAuction ? featuredAuction.isLive : true;
-
-  const numericHighest = parseFloat(
-    (featured.highestBid !== null ? featured.highestBid : highestBid) || "0"
-  );
-  const numericStarting = parseFloat(featured.startingPrice || "0");
-  const minRequiredBid =
-    numericHighest > 0 ? numericHighest + 0.01 : numericStarting || 0.5;
-
-  const rawTopBidder =
-    featured.highestBidder &&
-    featured.highestBidder !== ZERO_ADDRESS
-      ? featured.highestBidder
-      : highestBidder;
-
-  /* Requirement 1: the console reads the LIVE auction
-     object's highestBid / highestBidder. A fallback is
-     used only when there is NO on-chain auction at all
-     (and "No bids yet" strings never reach the label). */
-
-  const hasRealBidder =
-    typeof rawTopBidder === "string" &&
-    rawTopBidder.startsWith("0x") &&
-    rawTopBidder !== ZERO_ADDRESS;
-
-  const topBidderDisplay =
-    numericHighest > 0 && hasRealBidder
-      ? getAccountLabel(rawTopBidder)
-      : "No bids yet";
-
-  /* -------------------------------------------------------
-     Requirement 2: COUNTDOWN REPAIR
-
-     remaining = Math.max(0, auction.endTime - nowSec)
-     formatted continuously as XXh YYm ZZs.
-
-     remaining === null  -> no on-chain end time yet
-     remaining === 0     -> auction ended (bidding UI off)
-     ------------------------------------------------------- */
+  const activeTender =
+    (tendersList || []).find((t) => t.id === Number(activeTenderId)) ||
+    featuredTender;
+  const tender = activeTender;
 
   const [remaining, setRemaining] = useState(null);
 
   useEffect(() => {
-    const endSec =
-      Number(featured.auctionEndTime) ||
-      Number(endTime) ||
-      0;
-
+    const endSec = Number(tender?.closingTime) || 0;
     if (!endSec) {
       setRemaining(null);
       return;
     }
-
-    const tick = () => {
-      setRemaining(
-        Math.max(
-          0,
-          endSec -
-            Math.floor(Date.now() / 1000)
-        )
-      );
-    };
-
+    const tick = () =>
+      setRemaining(Math.max(0, endSec - Math.floor(Date.now() / 1000)));
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [featured.auctionEndTime, endTime]);
+  }, [tender?.closingTime]);
 
   const pad = (n) => String(n).padStart(2, "0");
-
   const countdownDisplay =
     remaining === null
       ? "—"
@@ -146,93 +89,104 @@ export default function Home({
           Math.floor((remaining % 3600) / 60)
         )}m ${pad(remaining % 60)}s`;
 
-  const isTimeUp = remaining === 0;
+  const isOpen = tender?.status === "OPEN" && remaining !== 0 && remaining !== null;
+  const isTimeUp = !isOpen;
 
-  const heroIsLive = isFeaturedLive && !isTimeUp;
+  const emdAmount = parseFloat(tender?.emdAmount || "0");
+  const currentLowest = parseFloat(tender?.lowestBid || "0");
+  const hasBids = currentLowest > 0;
 
-  const onSubmitBid = async (e) => {
+  const lowestBidderDisplay =
+    tender?.lowestBidderAddress &&
+    tender.lowestBidderAddress !== ZERO_ADDRESS
+      ? vendorLabel(tender.lowestBidderAddress)
+      : "No bids yet";
+
+  const onSubmitOffer = async (e) => {
     e.preventDefault();
-    if (!bidInput || parseFloat(bidInput) <= numericHighest) return;
+    if (!tender) return;
+
+    const offer = parseFloat(offerInput);
+    if (!offerInput || !Number.isFinite(offer) || offer <= 0) {
+      setFormError("Enter a valid tender offer amount.");
+      return;
+    }
+
+    const total = offer + emdAmount;
+    /* Reverse auction: a new total must undercut the current lowest bid */
+    if (hasBids && total >= currentLowest) {
+      setFormError(
+        `Reverse auction: your total (offer + EMD) must be lower than the current lowest bid of ${toEth(
+          currentLowest
+        )} ETH.`
+      );
+      return;
+    }
+
+    setFormError("");
     setIsSubmitting(true);
     try {
-      // Bid on the FEATURED auction specifically
-      await handleBid(featured.id, bidInput);
-      setBidInput("");
+      await handleSubmitTenderOffer(tender.id, offerInput);
+      setOfferInput("");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const setPresetBid = (increment) => {
-    const base = numericHighest > 0 ? numericHighest : numericStarting || 0.5;
-    const nextVal = (base + increment).toFixed(2);
-    setBidInput(nextVal);
-  };
+  /* The INPUT must stay enabled while empty so the user can type;
+     only the BUTTON additionally waits for a non-empty offer. */
+  const formLocked =
+    isSubmitting ||
+    !session ||
+    session.role !== "CONTRACTOR" ||
+    isTimeUp ||
+    !tender;
+  const inputDisabled = formLocked;
+  const buttonDisabled = formLocked || !offerInput;
 
-  const accountDetails = getAccountDetails(account, deployer);
+  const submitLabel = isSubmitting
+    ? "Submitting…"
+    : !session || session.role !== "CONTRACTOR"
+    ? "Contractors Only"
+    : isTimeUp
+    ? "Tender Closed"
+    : "Submit Tender Offer";
 
   return (
     <div className="home-container">
-      {/* Dynamic Account Switcher Bar for Local Hardhat Node */}
-      <div className="demo-account-bar">
-        <div className="demo-title-group">
-          <Wallet size={16} color="#06b6d4" />
-          <span className="demo-title">Simulate Local Accounts:</span>
-        </div>
-        <div className="demo-buttons">
-          {HARDHAT_ACCOUNTS.map((acc) => {
-            const isActive = account && account.toLowerCase() === acc.address.toLowerCase();
-            const isDeployerAcc = acc.address.toLowerCase() === (deployer || "").toLowerCase();
-
-            return (
-              <button 
-                key={acc.address}
-                className={"btn-demo-acc " + (isActive ? "active" : "")}
-                onClick={() => onSwitchAccount(acc.address)}
-                title={`Switch to ${acc.name} (${acc.address})`}
-              >
-                <span>{acc.name}</span>
-                <span className={"role-tag-badge " + (isDeployerAcc ? "role-deployer" : "role-bidder")}>
-                  {isDeployerAcc ? "Deployer" : "Bidder"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Dynamic Active Auction Selector (Requirement 1) */}
+      {/* Top selector bar — active tender drives the Live Procurement Console */}
       <div className="demo-account-bar active-auction-bar">
         <div className="demo-title-group">
-          <Gavel size={16} color="#f59e0b" />
-          <span className="demo-title">Active Auction:</span>
+          <Building size={16} color="#f59e0b" />
+          <span className="demo-title">Active Tender Selection:</span>
         </div>
         <div className="demo-buttons">
-          {auctionsList.length === 0 ? (
+          {tendersList.length === 0 ? (
             <span className="active-auction-empty">
-              No auctions on-chain yet — create one as Deployer
+              No tenders available — publish one as an Authority
             </span>
           ) : (
-            auctionsList.map((a) => (
+            tendersList.map((t) => (
               <button
-                key={a.id}
+                key={t.id}
                 className={
-                  "btn-demo-acc " +
-                  (Number(activeAuctionId) === a.id ? "active" : "")
+                  "btn-demo-acc " + (Number(activeTenderId) === t.id ? "active" : "")
                 }
-                onClick={() => onSelectActiveAuction && onSelectActiveAuction(a.id)}
-                title={`Set Auction #${a.id} as active`}
+                onClick={() => onSelectActiveTender && onSelectActiveTender(t.id)}
+                title={`Set tender ${t.referenceNo} as active`}
               >
                 <span>
-                  #{a.id} {a.title.length > 22 ? a.title.slice(0, 22) + "…" : a.title}
+                  #{t.id} {t.referenceNo}
                 </span>
                 <span
                   className={
                     "role-tag-badge " +
-                    (a.status === "ACTIVE" ? "role-deployer" : "role-bidder")
+                    (t.status === "OPEN" && t.isOpen
+                      ? "role-authority"
+                      : "role-contractor")
                   }
                 >
-                  {a.status === "ACTIVE" ? "LIVE" : a.status}
+                  {t.status === "OPEN" && t.isOpen ? "OPEN" : t.status}
                 </span>
               </button>
             ))
@@ -241,52 +195,53 @@ export default function Home({
       </div>
 
       <div className="auction-grid">
-        {/* Left Column: Featured Asset Hero Card */}
+        {/* LEFT: featured tender hero */}
         <div className="card asset-card glass-card">
           <div className="hero-image-wrap">
             <img
-              src={
-                featured.imageUrl ||
-                "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=1200&auto=format&fit=crop&q=80"
-              }
-              alt={featured.title}
+              src={getTenderImage(tender)}
+              alt={tender?.title || "Tender"}
             />
             <div className="hero-image-overlay"></div>
             <div className="hero-badge">
-              {heroIsLive ? (
+              {isOpen ? (
                 <>
                   <span className="badge-pulse-dot"></span>
-                  LIVE ON-CHAIN AUCTION
+                  LIVE PROCUREMENT
                 </>
               ) : (
-                <span style={{ color: "var(--rose)" }}>● AUCTION ENDED</span>
+                <span style={{ color: "var(--rose)" }}>
+                  ● {tender?.status || "CLOSED"}
+                </span>
               )}
             </div>
           </div>
 
-          <h2 className="asset-title">{featured.title}</h2>
-          <p className="asset-desc">{featured.description}</p>
+          <h2 className="asset-title">{tender?.title || "No Tender Selected"}</h2>
+          <p className="asset-desc">{tender?.description}</p>
 
           <div className="asset-stats">
             <div className="stat-box">
-              <span className="stat-label"><Clock size={13} /> Time Remaining</span>
+              <span className="stat-label">
+                <Clock size={13} /> Time Remaining
+              </span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-title" style={{ width: "120px" }} />
               ) : isTimeUp ? (
                 <span className="stat-val" style={{ color: "var(--rose)" }}>
-                  Auction Ended
+                  Tender Closed
                 </span>
               ) : (
-                /* Requirement 2: continuous XXh YYm ZZs format
-                   via Math.max(0, end - now) ticking every second */
-                <span className="stat-val countdown-live">
-                  {countdownDisplay}
-                </span>
+                <span className="stat-val countdown-live">{countdownDisplay}</span>
               )}
             </div>
             <div className="stat-box">
-              <span className="stat-label"><Gavel size={13} /> Auction ID</span>
-              <span className="stat-val">#{featured.id}</span>
+              <span className="stat-label">
+                <FileText size={13} /> Tender Ref. No.
+              </span>
+              <span className="stat-val" style={{ fontSize: "0.9rem" }}>
+                {tender?.referenceNo || "N/A"}
+              </span>
             </div>
           </div>
 
@@ -294,210 +249,245 @@ export default function Home({
             <div className="feature-item">
               <ShieldCheck size={22} className="feature-icon" />
               <div>
-                <strong>Trustless Escrow Security</strong>
-                <p>Funds are held directly by the smart contract. No central party can alter bids.</p>
+                <strong>Department: {tender?.department || "N/A"}</strong>
+                <p>
+                  Category: {tender?.category || "N/A"} · Authority:{" "}
+                  {tender?.authorityAddress
+                    ? tender.authorityAddress.slice(0, 10) + "…"
+                    : "N/A"}
+                </p>
               </div>
             </div>
             <div className="feature-item">
-              <Landmark size={22} className="feature-icon" />
+              <IndianRupee size={22} className="feature-icon" />
               <div>
-                <strong>On-Chain Provenance</strong>
-                <p>Every bid is a signed transaction — verifiable in the Hardhat node audit trail below.</p>
+                <strong>
+                  Estimated Value: {toEth(tender?.estimatedValue)} ETH
+                </strong>
+                <p>
+                  ≈ {toInr(tender?.estimatedValue)} · EMD Required:{" "}
+                  {toEth(tender?.emdAmount)} ETH
+                </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Interactive Bid Console */}
+        {/* RIGHT: interactive reverse-auction offer console */}
         <div className="card console-card glass-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "1.25rem",
+              gap: "0.75rem",
+              flexWrap: "wrap",
+            }}
+          >
             <h3 style={{ margin: 0 }}>
-              <Flame size={20} color="#f59e0b" />
-              Live Bidding Console
+              <Gavel size={20} color="#f59e0b" />
+              Submit Tender Offer
             </h3>
-            <span className={"user-role-pill " + (accountDetails.isDeployer ? "role-deployer" : "role-bidder")}>
-              Role: {accountDetails.badge}
+            <span
+              className={
+                "user-role-pill " +
+                (session?.role === "AUTHORITY" ? "role-authority" : "role-contractor")
+              }
+            >
+              {session?.role || "—"}
             </span>
           </div>
 
           <div className="bid-status-board">
             <div className="status-metric">
-              <span className="metric-label">CURRENT HIGHEST BID</span>
+              <span className="metric-label">Current Lowest Bid</span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-title" style={{ width: "100px" }} />
               ) : (
-                <span className="metric-value">{numericHighest > 0 ? numericHighest.toFixed(2) : numericStarting.toFixed(2)} ETH</span>
+                <span className="metric-value">
+                  {hasBids ? `${toEth(currentLowest)} ETH` : "—"}
+                </span>
               )}
             </div>
             <div className="status-metric">
-              <span className="metric-label">TOP BIDDER</span>
+              <span className="metric-label">Lowest Bidder</span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-text" style={{ width: "120px" }} />
               ) : (
-                <span className="metric-value highlight">{topBidderDisplay}</span>
+                <span className="metric-value highlight">{lowestBidderDisplay}</span>
               )}
+            </div>
+            <div className="status-metric">
+              <span className="metric-label">EMD Required</span>
+              <span className="metric-value">{toEth(tender?.emdAmount)} ETH</span>
+            </div>
+            <div className="status-metric">
+              <span className="metric-label">Your Wallet</span>
+              <span className="metric-value">{toEth(balance)} ETH</span>
             </div>
           </div>
 
-          {/* Place Bid Form */}
-          <form onSubmit={onSubmitBid} className="bid-form">
+          <form onSubmit={onSubmitOffer} className="bid-form">
             <label className="input-label">
-              {"ENTER YOUR BID (Must be > " + (numericHighest > 0 ? numericHighest.toFixed(2) : numericStarting.toFixed(2)) + " ETH)"}
+              TENDER OFFER AMOUNT (EMD ADDED AUTOMATICALLY)
             </label>
             <div className="input-group">
-              <input 
-                type="number" 
-                step="0.01" 
-                min={minRequiredBid}
-                placeholder={"Min required: " + minRequiredBid.toFixed(2)}
-                value={bidInput}
-                onChange={(e) => setBidInput(e.target.value)}
+              <input
+                type="number"
+                step="0.0001"
+                min="0.0001"
+                placeholder={
+                  hasBids
+                    ? `Below ${toEth(currentLowest)} ETH total`
+                    : "Enter offer amount"
+                }
+                value={offerInput}
+                onChange={(e) => {
+                  setOfferInput(e.target.value);
+                  if (formError) setFormError("");
+                }}
                 required
-                disabled={isSubmitting}
+                disabled={inputDisabled}
               />
               <span className="unit">ETH</span>
             </div>
 
-            {/* Quick Bid Preset Buttons */}
-            <div className="bid-presets">
-              <button type="button" className="btn-preset" onClick={() => setPresetBid(0.5)}>
-                +0.5 ETH
-              </button>
-              <button type="button" className="btn-preset" onClick={() => setPresetBid(1.0)}>
-                +1.0 ETH
-              </button>
-              <button type="button" className="btn-preset" onClick={() => setPresetBid(2.0)}>
-                +2.0 ETH
-              </button>
-            </div>
+            <p className="form-hint">
+              EMD: {toEth(tender?.emdAmount)} ETH · Total will be{" "}
+              <strong>
+                {toEth(parseFloat(offerInput || "0") + emdAmount)} ETH
+              </strong>{" "}
+              ({toInr(parseFloat(offerInput || "0") + emdAmount)})
+            </p>
 
-            <button 
-              type="submit" 
-              className="btn-bid-glow"
-              disabled={
-                isSubmitting ||
-                isTimeUp ||
-                !bidInput ||
-                parseFloat(bidInput) <= numericHighest
-              }
-            >
-              {isSubmitting ? (
-                <span>Confirming On-Chain...</span>
-              ) : (
-                <>Place On-Chain Bid <ArrowUpRight size={17} /></>
-              )}
+            {formError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  fontSize: "0.78rem",
+                  color: "var(--rose)",
+                  background: "rgba(244,63,94,0.08)",
+                  border: "1px solid rgba(244,63,94,0.3)",
+                  borderRadius: "8px",
+                  padding: "0.5rem 0.7rem",
+                }}
+              >
+                <AlertCircle size={15} />
+                {formError}
+              </div>
+            )}
+
+            <button type="submit" className="btn-primary" disabled={buttonDisabled}>
+              {submitLabel} {!buttonDisabled && <ArrowUpRight size={17} />}
             </button>
           </form>
         </div>
       </div>
 
-      {/* Claimable Refund Vault — separate card, off the bid column */}
-      <div className={"refund-vault-card glass-card " + (parseFloat(pendingRefund || "0") > 0 ? "has-refund" : "")}>
+      {/* Claimable EMD refund vault (cumulative across outbid/non-winning tenders) */}
+      <div
+        className={
+          "refund-vault-card glass-card " +
+          (parseFloat(pendingRefund || "0") > 0 ? "has-refund" : "")
+        }
+      >
         <div className="refund-vault-icon">
-          <RefreshCw size={22} />
+          <ShieldCheck size={22} />
         </div>
         <div className="refund-vault-info">
-          <span className="refund-label">YOUR CLAIMABLE REFUND VAULT</span>
-          {isLoadingContract ? (
-            <div className="skeleton skeleton-text" />
-          ) : (
-            <span className="refund-amount">{pendingRefund} ETH</span>
-          )}
+          <span className="refund-label">Claimable EMD Refund Vault</span>
+          <span className="refund-amount">{toEth(pendingRefund)} ETH</span>
           <span className="refund-hint">
-            When you are outbid, 100% of your ETH moves here for safe withdrawal.
+            Cumulative EMD from all outbid / non-winning tenders is held here for
+            secure withdrawal.
           </span>
         </div>
-        <button 
-          className="btn-secondary" 
-          onClick={handleWithdraw}
+        <button
+          className="btn-secondary"
+          onClick={handleClaimEmdRefund}
           disabled={parseFloat(pendingRefund || "0") <= 0}
         >
-          <RefreshCw size={15} />
-          Withdraw Refund
+          Claim EMD Refund
         </button>
       </div>
 
-      {/* Live On-Chain Bid Audit Log */}
+      {/* On-chain TenderBidSubmitted audit trail */}
       <div className="card audit-card glass-card">
         <div className="audit-header">
           <h3>
             <History size={20} color="#06b6d4" />
             {logContext === "GLOBAL"
-              ? "Global Bid Audit Log — All Auctions"
-              : `Bid Audit Log — Auction #${activeAuctionId}`}
+              ? "On-Chain Audit Trail — All Tenders"
+              : `Audit Trail — Tender #${activeTenderId}`}
           </h3>
-
-          {/* GLOBAL / PER-AUCTION scope toggle (Requirement 3) */}
           <div className="log-scope-toggle">
             <button
-              className={
-                "log-scope-btn " + (logContext === "GLOBAL" ? "active" : "")
-              }
+              className={"log-scope-btn " + (logContext === "GLOBAL" ? "active" : "")}
               onClick={() => onToggleLogContext && onToggleLogContext("GLOBAL")}
             >
               Global
             </button>
             <button
-              className={
-                "log-scope-btn " + (logContext === "AUCTION" ? "active" : "")
-              }
-              onClick={() => onToggleLogContext && onToggleLogContext("AUCTION")}
+              className={"log-scope-btn " + (logContext === "TENDER" ? "active" : "")}
+              onClick={() => onToggleLogContext && onToggleLogContext("TENDER")}
             >
-              Auction #{activeAuctionId}
+              Tender #{activeTenderId}
             </button>
           </div>
-
           <span className="audit-meta-count">
-            {bidHistory.length} Event{bidHistory.length === 1 ? "" : "s"} Logged
+            {tenderBidHistory.length} Event{tenderBidHistory.length === 1 ? "" : "s"}
           </span>
         </div>
 
-        {bidHistory.length === 0 ? (
+        {tenderBidHistory.length === 0 ? (
           <div className="empty-log">
-            No bids recorded in this contract session yet. Submit a bid above to register the first on-chain audit block!
+            No tender bids recorded yet — submit an offer to register the first
+            on-chain audit block.
           </div>
         ) : (
           <div className="table-responsive">
             <table className="audit-table">
               <thead>
                 <tr>
-                  <th>Bidder / Wallet</th>
-                  <th>Amount</th>
+                  <th>Vendor ID</th>
+                  <th>Tender Ref</th>
+                  <th>Offer Amount (ETH / INR)</th>
+                  <th>EMD</th>
                   <th>Timestamp</th>
-                  <th>Transaction Hash</th>
+                  <th>Tx Hash</th>
                 </tr>
               </thead>
               <tbody>
-                {bidHistory.map((item, idx) => {
-                  const isCurrentWallet = account && item.bidder && account.toLowerCase() === item.bidder.toLowerCase();
-                  return (
-                    <tr key={item.id || idx}>
-                      <td>
-                        <span className="bidder-tag">
-                          {getAccountLabel(item.bidder)}
-                          {isCurrentWallet && (
-                            <span style={{ fontSize: "0.7rem", color: "#10b981", fontWeight: "bold", marginLeft: "4px" }}>
-                              (You)
-                            </span>
-                          )}
+                {tenderBidHistory.map((item, idx) => (
+                  <tr key={item.id || idx}>
+                    <td>
+                      <span className="bidder-tag">{vendorLabel(item.bidder)}</span>
+                    </td>
+                    <td className="mono">{item.referenceNo}</td>
+                    <td>
+                      <span className="bid-badge-highlight">
+                        {toEth(item.offerAmount)} ETH
+                      </span>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {toInr(item.offerAmount)}
+                      </div>
+                    </td>
+                    <td className="mono">{toEth(item.emdAmount)} ETH</td>
+                    <td className="bids-table-time">{item.time}</td>
+                    <td>
+                      {item.txHash ? (
+                        <span className="tx-hash-badge" title={item.txHash}>
+                          {item.txHash.slice(0, 10)}…{item.txHash.slice(-6)}
                         </span>
-                      </td>
-                      <td>
-                        <span className="bid-badge-highlight">{item.amount} ETH</span>
-                      </td>
-                      <td>{item.time}</td>
-                      <td>
-                        {item.txHash ? (
-                          <span className="tx-hash-badge" title={item.txHash}>
-                            {item.txHash.slice(0, 10)}...{item.txHash.slice(-6)}
-                          </span>
-                        ) : (
-                          <span className="tx-hash-badge">On-Chain Event</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                      ) : (
+                        <span className="tx-hash-badge">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

@@ -63,7 +63,7 @@ export default function MetaMaskSimulatorModal({
 
         <div style={{ backgroundColor: "#151521", borderRadius: "8px", padding: "10px", margin: "14px 0", fontSize: "13px" }}>
           <div style={{ color: "#a1a1aa", marginBottom: "4px" }}>Active Wallet Address:</div>
-          <div style={{ fontSize: "12px", color: "#6366f1", fontFamily: "monospace", fontWeight: "bold" }}>
+          <div style={{ fontSize: "12px", color: "#f59e0b", fontFamily: "monospace", fontWeight: "bold" }}>
             {shortAddr}
           </div>
         </div>
@@ -76,7 +76,7 @@ export default function MetaMaskSimulatorModal({
             {txDetails.amount ? `${txDetails.amount} ETH` : "0 ETH"}
           </div>
           <div style={{ fontSize: "12px", color: "#9ca3af" }}>
-            Contract: <span style={{ fontFamily: "monospace", color: "#e2e8f0" }}>AuctionX</span>
+            Contract: <span style={{ fontFamily: "monospace", color: "#f59e0b" }}>TenderVault</span>
           </div>
         </div>
 
@@ -109,8 +109,8 @@ export default function MetaMaskSimulatorModal({
               padding: "10px",
               borderRadius: "8px",
               border: "none",
-              backgroundColor: "#6366f1",
-              color: "#fff",
+              backgroundColor: "#f59e0b",
+              color: "#000",
               fontWeight: "bold",
               cursor: "pointer"
             }}
