@@ -16,7 +16,7 @@ import { FileText, Compass, User, LogOut, Building, Shield } from "lucide-react"
 
 import "./App.css";
 
-const RPC_URL = "http://127.0.0.1:8545";
+const RPC_URL = import.meta.env.VITE_RPC_URL || "http://127.0.0.1:8545";
 
 export default function App() {
   const [session, setSession] = useState(getCurrentSession());

@@ -1,4 +1,6 @@
-export const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+export const CONTRACT_ADDRESS =
+  import.meta.env.VITE_CONTRACT_ADDRESS ||
+  "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
 export const TENDER_IMAGES = {
   NHAI: "https://images.unsplash.com/photo-1521747116042-5a810fda9664?w=1200&auto=format&fit=crop&q=80",

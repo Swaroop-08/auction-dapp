@@ -149,7 +149,7 @@ export function getDirectSigner(
   if (!provider) {
 
     throw new Error(
-      "No RPC provider supplied to getDirectSigner (expected http://127.0.0.1:8545)."
+      "No RPC provider supplied to getDirectSigner (expected a local Hardhat node or the VITE_RPC_URL target)."
     );
   }
 
