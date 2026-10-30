@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+frontend/node_modules/
 
 # Hardhat
 cache/
@@ -9,13 +10,28 @@ typechain-types/
 
 # Frontend build output
 frontend/dist/
+frontend/dist-ssr/
 
 # Logs
 *.log
 npm-debug.log*
+frontend/npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS files
+# Editor directories and files
 .DS_Store
+.vscode/
+.idea/
 
-# Env
-.env
+# Environment variables (actual values, not examples)
+.env*
+frontend/.env*
+
+# Build artifacts with potential sensitive data
+*.orig
+*.bak
+
+# Patents and drafts (not for public repo)
+# PATENT_DOCUMENTATION.md  # Uncomment if you want to exclude patent doc from repo
