@@ -1,6 +1,9 @@
 import hre from "hardhat";
 
-const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+// Keep in sync with frontend/.env (VITE_CONTRACT_ADDRESS). The first
+// deployment from account 0 lands at 0x5FbD…0aa3.
+const CONTRACT_ADDRESS =
+  process.env.CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 
 const SEED = [
   {
@@ -11,7 +14,7 @@ const SEED = [
     category: "Construction",
     department: "CPWD",
     documentUrl: "https://cpwd.gov.in/tender-documents/STR-12-002.pdf",
-    estimatedValue: "2500000",
+    estimatedValue: "300",
     emdAmount: "0.5",
     durationSec: 72 * 3600,
   },
@@ -23,7 +26,7 @@ const SEED = [
     category: "Infrastructure",
     department: "Railways",
     documentUrl: "https://indianrailways.gov.in/tenders/TRK-88-014.pdf",
-    estimatedValue: "3000000",
+    estimatedValue: "220",
     emdAmount: "0.4",
     durationSec: 36 * 3600,
   },
@@ -35,7 +38,7 @@ const SEED = [
     category: "IT Systems",
     department: "Smart Cities",
     documentUrl: "https://smartcities.gov.in/tenders/SC-07-009.pdf",
-    estimatedValue: "1200000",
+    estimatedValue: "120",
     emdAmount: "0.25",
     durationSec: 24 * 3600,
   },
@@ -62,6 +65,7 @@ async function main() {
       hre.ethers.parseEther(t.estimatedValue),
       hre.ethers.parseEther(t.emdAmount),
       BigInt(t.durationSec),
+      BigInt(0),
       { gasLimit: 600000 }
     );
     await tx.wait();

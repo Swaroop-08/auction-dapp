@@ -48,7 +48,9 @@ function useCountdown(closingTime) {
 }
 
 function TenderCard({ tender, isActive, onSelect }) {
+  const upcoming = tender.status === "OPEN" && tender.hasStarted === false;
   const countdown = useCountdown(tender.closingTime);
+  const opensIn = useCountdown(upcoming ? tender.startTime : 0);
   const isOpen = tender.status === "OPEN" && tender.isOpen;
 
   return (
@@ -64,7 +66,7 @@ function TenderCard({ tender, isActive, onSelect }) {
             (isOpen ? "tag-live" : tender.status === "AWARDED" ? "tag-ended" : "tag-upcoming")
           }
         >
-          {isOpen ? "OPEN" : tender.status}
+          {isOpen ? "OPEN" : upcoming ? "UPCOMING" : tender.status}
         </span>
       </div>
 
@@ -101,16 +103,18 @@ function TenderCard({ tender, isActive, onSelect }) {
             <span className="value cyan">{toEth(tender.emdAmount)} ETH</span>
           </div>
           <div className="tender-detail-row">
-            <span className="label">Lowest Bid</span>
+            <span className="label">Highest Bid</span>
             <span className="value emerald">
               {parseFloat(tender.lowestBid) > 0 ? `${toEth(tender.lowestBid)} ETH` : "None"}
             </span>
           </div>
           <div className="tender-detail-row">
             <span className="label">
-              <Clock size={13} /> Closing In
+              <Clock size={13} /> {upcoming ? "Opens In" : "Closing In"}
             </span>
-            <span className={"value " + (isOpen ? "cyan" : "")}>{countdown}</span>
+            <span className={"value " + (isOpen ? "cyan" : "")}>
+              {upcoming ? opensIn : countdown}
+            </span>
           </div>
         </div>
 

@@ -19,6 +19,7 @@ contract TenderVault {
         uint256 emdAmountWei;
         uint256 lowestBidWei;
         address lowestBidderAddress;
+        uint256 startTime;
         uint256 closingTime;
         TenderStatus status;
         bool fundsClaimed;
@@ -37,6 +38,7 @@ contract TenderVault {
         address indexed authorityAddress,
         uint256 estimatedValueWei,
         uint256 emdAmountWei,
+        uint256 startTime,
         uint256 closingTime
     );
 
@@ -76,9 +78,10 @@ contract TenderVault {
             "Infrastructure",
             "NHAI",
             "https://nhai.gov.in/tender-documents/HP-45-001.pdf",
-            5000000 ether,
-            50000 ether,
-            48 hours
+            250 ether,
+            0.5 ether,
+            48 hours,
+            0
         );
     }
 
@@ -91,10 +94,16 @@ contract TenderVault {
         string memory documentUrl,
         uint256 estimatedValueWei,
         uint256 emdAmountWei,
-        uint256 duration
+        uint256 duration,
+        uint256 startTime
     ) public returns (uint256) {
         require(duration > 0, "Duration must be > 0");
         require(emdAmountWei > 0, "EMD amount must be > 0");
+
+        // startTime 0 (or a past time) publishes the tender live immediately;
+        // a future startTime schedules it. The window runs from the start.
+        uint256 effectiveStart = startTime > block.timestamp ? startTime : block.timestamp;
+        uint256 endTime = effectiveStart + duration;
 
         uint256 tenderId = tenderCount;
         tenderCount++;
@@ -112,7 +121,8 @@ contract TenderVault {
             emdAmountWei: emdAmountWei,
             lowestBidWei: 0,
             lowestBidderAddress: address(0),
-            closingTime: block.timestamp + duration,
+            startTime: effectiveStart,
+            closingTime: endTime,
             status: TenderStatus.OPEN,
             fundsClaimed: false
         });
@@ -124,7 +134,8 @@ contract TenderVault {
             msg.sender,
             estimatedValueWei,
             emdAmountWei,
-            block.timestamp + duration
+            effectiveStart,
+            endTime
         );
 
         return tenderId;
@@ -134,15 +145,18 @@ contract TenderVault {
         Tender storage tender = tenders[tenderId];
         
         require(tender.closingTime > 0, "Tender does not exist");
+        require(block.timestamp >= tender.startTime, "Tender has not opened yet");
         require(block.timestamp <= tender.closingTime, "Tender closed");
         require(tender.status == TenderStatus.OPEN, "Tender not open for bidding");
         require(msg.sender != tender.authorityAddress, "Authority cannot bid on their own tender");
         require(msg.value >= tender.emdAmountWei, "Must pay at least EMD amount");
 
+        // Ascending auction: the standing best bid is beaten only by a strictly higher value.
+        // (Storage fields keep their historical "lowest" names; they hold the current best bid.)
         if (tender.lowestBidWei == 0) {
             // First bid accepted
         } else {
-            require(msg.value < tender.lowestBidWei, "New bid must be lower than current lowest bid");
+            require(msg.value > tender.lowestBidWei, "New bid must be higher than the current highest bid");
         }
 
         if (tender.lowestBidWei != 0 && tender.lowestBidderAddress != address(0)) {

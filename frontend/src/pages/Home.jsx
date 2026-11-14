@@ -11,6 +11,7 @@ import {
   Gavel,
   IndianRupee,
   AlertCircle,
+  Plus,
 } from "lucide-react";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -37,8 +38,8 @@ const vendorLabel = (addr) => {
 /*
   Home = LIVE PROCUREMENT CONSOLE.
   Shows the ACTIVE tender (selected via the top selector bar or Explore's
-  "Set Active Tender"), its countdown, EMD requirement, current lowest bid
-  and lowest bidder, plus an interactive reverse-auction offer form.
+  "Set Active Tender"), its countdown, EMD requirement, current highest bid
+  and the leading bidder, plus an interactive ascending-bid offer form.
   The audit trail renders the TenderBidSubmitted events with Vendor ID,
   Tender Ref, Offer (INR/ETH), EMD, timestamp and tx hash.
 */
@@ -56,6 +57,7 @@ export default function Home({
   handleSubmitTenderOffer,
   pendingRefund,
   handleClaimEmdRefund,
+  onOpenCreateTender,
 }) {
   const [offerInput, setOfferInput] = useState("");
   const [formError, setFormError] = useState("");
@@ -89,12 +91,26 @@ export default function Home({
           Math.floor((remaining % 3600) / 60)
         )}m ${pad(remaining % 60)}s`;
 
-  const isOpen = tender?.status === "OPEN" && remaining !== 0 && remaining !== null;
+  /* Upcoming tenders accept no bids until their scheduled opening time.
+     Declared before isOpen, which depends on hasStarted. */
+  const startsAt = Number(tender?.startTime) || 0;
+  const hasStarted = !startsAt || Date.now() / 1000 >= startsAt;
+  const opensIn = startsAt ? Math.max(0, startsAt - Math.floor(Date.now() / 1000)) : 0;
+  const opensInDisplay = `${pad(Math.floor(opensIn / 3600))}h ${pad(
+    Math.floor((opensIn % 3600) / 60)
+  )}m ${pad(opensIn % 60)}s`;
+
+  const isOpen =
+    tender?.status === "OPEN" && hasStarted && remaining !== 0 && remaining !== null;
   const isTimeUp = !isOpen;
 
   const emdAmount = parseFloat(tender?.emdAmount || "0");
   const currentLowest = parseFloat(tender?.lowestBid || "0");
   const hasBids = currentLowest > 0;
+  /* Ascending auction: a new total must exceed the standing total.
+     EMD is constant per tender, so the lowest acceptable offer is
+     standing total - EMD. */
+  const minOffer = hasBids ? currentLowest - emdAmount : null;
 
   const lowestBidderDisplay =
     tender?.lowestBidderAddress &&
@@ -113,12 +129,14 @@ export default function Home({
     }
 
     const total = offer + emdAmount;
-    /* Reverse auction: a new total must undercut the current lowest bid */
-    if (hasBids && total >= currentLowest) {
+    /* Ascending auction: a new total must beat the standing total */
+    if (hasBids && total <= currentLowest) {
       setFormError(
-        `Reverse auction: your total (offer + EMD) must be lower than the current lowest bid of ${toEth(
+        `Higher total wins. Standing total is ${toEth(
           currentLowest
-        )} ETH.`
+        )} ETH, so your offer must be above ${toEth(
+          Math.max(minOffer, 0)
+        )} ETH (total ${toEth(total)} ETH is not higher than ${toEth(currentLowest)} ETH).`
       );
       return;
     }
@@ -148,6 +166,8 @@ export default function Home({
     ? "Submitting…"
     : !session || session.role !== "CONTRACTOR"
     ? "Contractors Only"
+    : !hasStarted
+    ? "Bidding Opens Soon"
     : isTimeUp
     ? "Tender Closed"
     : "Submit Tender Offer";
@@ -186,10 +206,24 @@ export default function Home({
                       : "role-contractor")
                   }
                 >
-                  {t.status === "OPEN" && t.isOpen ? "OPEN" : t.status}
+                  {t.status === "OPEN" && t.isOpen
+                    ? "OPEN"
+                    : t.status === "OPEN" && t.hasStarted === false
+                    ? "UPCOMING"
+                    : t.status}
                 </span>
               </button>
             ))
+          )}
+          {session?.role === "AUTHORITY" && (
+            <button
+              className="btn-secondary"
+              onClick={() => onOpenCreateTender && onOpenCreateTender()}
+              title="Publish a new tender on-chain"
+              style={{ whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+            >
+              <Plus size={15} /> Publish New Tender
+            </button>
           )}
         </div>
       </div>
@@ -209,6 +243,8 @@ export default function Home({
                   <span className="badge-pulse-dot"></span>
                   LIVE PROCUREMENT
                 </>
+              ) : tender?.status === "OPEN" && !hasStarted ? (
+                <span style={{ color: "#38bdf8" }}>◷ UPCOMING</span>
               ) : (
                 <span style={{ color: "var(--rose)" }}>
                   ● {tender?.status || "CLOSED"}
@@ -227,6 +263,10 @@ export default function Home({
               </span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-title" style={{ width: "120px" }} />
+              ) : !hasStarted ? (
+                <span className="stat-val" style={{ color: "#38bdf8" }}>
+                  Opens in {opensInDisplay}
+                </span>
               ) : isTimeUp ? (
                 <span className="stat-val" style={{ color: "var(--rose)" }}>
                   Tender Closed
@@ -273,7 +313,7 @@ export default function Home({
           </div>
         </div>
 
-        {/* RIGHT: interactive reverse-auction offer console */}
+        {/* RIGHT: interactive ascending-bid offer console */}
         <div className="card console-card glass-card">
           <div
             style={{
@@ -301,7 +341,7 @@ export default function Home({
 
           <div className="bid-status-board">
             <div className="status-metric">
-              <span className="metric-label">Current Lowest Bid</span>
+              <span className="metric-label">Highest Total (Offer + EMD)</span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-title" style={{ width: "100px" }} />
               ) : (
@@ -311,7 +351,7 @@ export default function Home({
               )}
             </div>
             <div className="status-metric">
-              <span className="metric-label">Lowest Bidder</span>
+              <span className="metric-label">Highest Bidder</span>
               {isLoadingContract ? (
                 <div className="skeleton skeleton-text" style={{ width: "120px" }} />
               ) : (
@@ -339,7 +379,7 @@ export default function Home({
                 min="0.0001"
                 placeholder={
                   hasBids
-                    ? `Below ${toEth(currentLowest)} ETH total`
+                    ? `Offer above ${toEth(Math.max(minOffer, 0))} ETH`
                     : "Enter offer amount"
                 }
                 value={offerInput}
@@ -359,6 +399,13 @@ export default function Home({
                 {toEth(parseFloat(offerInput || "0") + emdAmount)} ETH
               </strong>{" "}
               ({toInr(parseFloat(offerInput || "0") + emdAmount)})
+              {hasBids && (
+                <>
+                  {" "}
+                  · must exceed the standing total of {toEth(currentLowest)} ETH, so the
+                  offer has to be above <strong>{toEth(Math.max(minOffer, 0))} ETH</strong>
+                </>
+              )}
             </p>
 
             {formError && (

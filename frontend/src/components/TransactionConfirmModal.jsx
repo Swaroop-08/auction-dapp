@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { X } from "lucide-react";
+import { X, ShieldCheck } from "lucide-react";
 
-export default function MetaMaskSimulatorModal({ 
+export default function TransactionConfirmModal({ 
   isOpen, 
   onClose, 
   onConfirm, 
@@ -54,7 +54,7 @@ export default function MetaMaskSimulatorModal({
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #2d2d42", paddingBottom: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold" }}>
-            <span style={{ fontSize: "18px" }}>🦊</span> MetaMask Simulator
+            <ShieldCheck size={18} color="#f59e0b" /> Transaction Confirmation
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer" }}>
             <X size={18} />

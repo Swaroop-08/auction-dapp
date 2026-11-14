@@ -10,7 +10,8 @@ import Explore from "./pages/Explore";
 import Profile from "./pages/Profile";
 
 import ToastContainer from "./components/ToastContainer";
-import MetaMaskSimulatorModal from "./components/MetaMaskSimulatorModal";
+import TransactionConfirmModal from "./components/TransactionConfirmModal";
+import CreateTenderModal from "./components/CreateTenderModal";
 
 import { FileText, Compass, User, LogOut, Building, Shield } from "lucide-react";
 
@@ -38,6 +39,7 @@ export default function App() {
   const [simModalOpen, setSimModalOpen] = useState(false);
   const [simTxDetails, setSimTxDetails] = useState(null);
   const [simConfirmAction, setSimConfirmAction] = useState(null);
+  const [createTenderOpen, setCreateTenderOpen] = useState(false);
 
   const sessionRef = useRef(session);
   useEffect(() => {
@@ -145,7 +147,10 @@ export default function App() {
         formatted = all.map((t) => {
           const statusNum = Number(t.status);
           const status = statusNum === 2 ? "AWARDED" : statusNum === 1 ? "EVALUATING" : "OPEN";
-          const isOpen = status === "OPEN" && Date.now() / 1000 <= Number(t.closingTime);
+          const nowSec = Date.now() / 1000;
+          const startSec = Number(t.startTime);
+          const hasStarted = nowSec >= startSec;
+          const isOpen = status === "OPEN" && hasStarted && nowSec <= Number(t.closingTime);
           return {
             id: Number(t.id),
             referenceNo: t.referenceNo,
@@ -162,6 +167,8 @@ export default function App() {
             lowestBidWei: t.lowestBidWei.toString(),
             lowestBid: ethers.formatEther(t.lowestBidWei),
             lowestBidderAddress: t.lowestBidderAddress,
+            startTime: startSec,
+            hasStarted,
             closingTime: Number(t.closingTime),
             status,
             isOpen,
@@ -245,12 +252,15 @@ export default function App() {
       const endSec = Number(t.closingTime);
       const statusNum = Number(t.status);
       const status = statusNum === 2 ? "AWARDED" : statusNum === 1 ? "EVALUATING" : "OPEN";
+      const startSec = Number(t.startTime);
       const patch = {
         lowestBid: ethers.formatEther(t.lowestBidWei),
         lowestBidderAddress: t.lowestBidderAddress,
+        startTime: startSec,
+        hasStarted: nowSec >= startSec,
         closingTime: endSec,
         status,
-        isOpen: status === "OPEN" && nowSec <= endSec
+        isOpen: status === "OPEN" && nowSec >= startSec && nowSec <= endSec
       };
       setTendersList((prev) =>
         prev.some((x) => x.id === id) ? prev.map((x) => (x.id === id ? { ...x, ...patch } : x)) : prev
@@ -281,7 +291,7 @@ export default function App() {
     addToast({ type: "info", title: "Logged Out", message: "Session terminated" });
   };
 
-  const promptMetaMaskSim = (details, confirmCallback) => {
+  const promptTxConfirm = (details, confirmCallback) => {
     const activeUser = sessionRef.current?.address;
     setSimTxDetails({ fromAddress: activeUser, type: details?.type || "Contract Interaction", amount: details?.amount || "0" });
     setSimConfirmAction(() => confirmCallback);
@@ -316,7 +326,7 @@ export default function App() {
       addToast({ type: "error", title: "Insufficient Balance", message: `Insufficient ETH balance. Need ${totalAmount.toFixed(4)} ETH (Offer + EMD)` });
       return;
     }
-    promptMetaMaskSim({ type: "Submit Tender Offer", amount: totalAmount.toFixed(4) }, async () => {
+    promptTxConfirm({ type: "Submit Tender Offer", amount: totalAmount.toFixed(4) }, async () => {
       try {
         const provider = getProvider();
         const signer = getDirectSignerForUser(sessionRef.current, provider);
@@ -338,7 +348,7 @@ export default function App() {
   const handleClaimEmdRefund = async () => {
     const currentUser = sessionRef.current;
     if (!currentUser) return;
-    promptMetaMaskSim({ type: "Claim EMD Refund", amount: pendingRefund }, async () => {
+    promptTxConfirm({ type: "Claim EMD Refund", amount: pendingRefund }, async () => {
       try {
         const provider = getProvider();
         const signer = getDirectSignerForUser(sessionRef.current, provider);
@@ -353,6 +363,58 @@ export default function App() {
         addToast({ type: "error", title: "Claim Failed", message: extractErrorMessage(err) });
       }
     });
+  };
+
+  const handleCreateTender = (draft) => {
+    const currentUser = sessionRef.current;
+    if (!currentUser) {
+      addToast({ type: "error", title: "Authentication Required", message: "Please login to publish a tender" });
+      return false;
+    }
+    if (currentUser.role !== "AUTHORITY") {
+      addToast({ type: "error", title: "Access Denied", message: "Only government authorities can publish tenders" });
+      return false;
+    }
+
+    promptTxConfirm({ type: "Publish Tender", amount: "0" }, async () => {
+      try {
+        const provider = getProvider();
+        const signer = getDirectSignerForUser(sessionRef.current, provider);
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        const tx = await contract.createTender(
+          draft.referenceNo,
+          draft.title,
+          draft.description,
+          draft.category,
+          draft.department,
+          draft.documentUrl,
+          ethers.parseEther(String(draft.estimatedValue)),
+          ethers.parseEther(String(draft.emdAmount)),
+          BigInt(draft.durationSec),
+          BigInt(draft.startTimeSec || 0),
+          { gasLimit: 1500000 }
+        );
+        const receipt = await tx.wait();
+        const count = await contract.tenderCount();
+        const newId = Number(count) - 1;
+        addToast({
+          type: "success",
+          title: draft.startTimeSec > 0 ? "Tender Scheduled" : "Tender Published",
+          message:
+            draft.startTimeSec > 0
+              ? `Tender #${newId} (${draft.referenceNo}) opens ${new Date(draft.startTimeSec * 1000).toLocaleString()}`
+              : `Tender #${newId} (${draft.referenceNo}) is now open for bids`,
+          txHash: receipt.hash,
+        });
+        setActiveTender(newId);
+        await fetchData();
+      } catch (err) {
+        console.error("Tender creation error:", err);
+        addToast({ type: "error", title: "Publish Failed", message: extractErrorMessage(err) });
+      }
+    });
+
+    return true;
   };
 
   useEffect(() => {
@@ -407,7 +469,13 @@ export default function App() {
   return (
     <Router>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-      <MetaMaskSimulatorModal isOpen={simModalOpen} onClose={() => setSimModalOpen(false)} onConfirm={simConfirmAction} txDetails={simTxDetails} />
+      <TransactionConfirmModal isOpen={simModalOpen} onClose={() => setSimModalOpen(false)} onConfirm={simConfirmAction} txDetails={simTxDetails} />
+      <CreateTenderModal
+        isOpen={createTenderOpen}
+        onClose={() => setCreateTenderOpen(false)}
+        onSubmit={handleCreateTender}
+        session={session}
+      />
       <header className="navbar-wrapper">
         <nav className="navbar">
           <NavLink to="/" className="brand">
@@ -436,7 +504,7 @@ export default function App() {
       </header>
       <main className="main-content">
         <Routes>
-          <Route path="/" element={<Home session={session} balance={balance} tendersList={tendersList} featuredTender={featuredTender} activeTenderId={activeTenderId} onSelectActiveTender={setActiveTender} tenderBidHistory={tenderBidHistory} logContext={logContext} onToggleLogContext={toggleLogContext} isLoadingContract={isLoadingContract} handleSubmitTenderOffer={handleSubmitTenderOffer} pendingRefund={pendingRefund} handleClaimEmdRefund={handleClaimEmdRefund} />} />
+          <Route path="/" element={<Home session={session} balance={balance} tendersList={tendersList} featuredTender={featuredTender} activeTenderId={activeTenderId} onSelectActiveTender={setActiveTender} tenderBidHistory={tenderBidHistory} logContext={logContext} onToggleLogContext={toggleLogContext} isLoadingContract={isLoadingContract} handleSubmitTenderOffer={handleSubmitTenderOffer} pendingRefund={pendingRefund} handleClaimEmdRefund={handleClaimEmdRefund} onOpenCreateTender={() => setCreateTenderOpen(true)} />} />
           <Route path="/explore" element={<Explore session={session} tendersList={tendersList} activeTenderId={activeTenderId} onSelectActiveTender={setActiveTender} />} />
           <Route path="/profile" element={<Profile session={session} tendersList={tendersList} tenderBidHistory={tenderBidHistory} pendingRefund={pendingRefund} handleClaimEmdRefund={handleClaimEmdRefund} balance={balance} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
